@@ -1,8 +1,9 @@
 const header = require("../Header/header");
 const { getTokens } = require("../config/tokenStore");
+require("dotenv").config();
+const aoCredentials = require("../models/aoCredentials");
 
 const jwtToken = process.env.JWT;
-require("dotenv").config();
 
 const getPostion = async (req, res) => {
   try {
@@ -12,6 +13,7 @@ const getPostion = async (req, res) => {
       {},
       jwtToken
     );
+    console.log(sendData);
     // Filter out positions where buyqty == sellqty
     const filteredData = Array.isArray(sendData.data)
       ? sendData.data.filter((item) => item.buyqty !== item.sellqty)
@@ -26,26 +28,32 @@ const getPostion = async (req, res) => {
   }
 };
 
-const getPostionF = async (data) => {
+const getPostionF = async (req, res) => {
   try {
-    const sendData = await header(
-      "get",
-      "/secure/angelbroking/order/v1/getPosition",
-      {},
-      jwtToken
-    );
-    console.log("sendata", sendData);
+    const client_ids = req.body.client_ids;
 
-    const filteredData = Array.isArray(sendData.data)
-      ? sendData.data.filter((item) => item.buyqty !== item.sellqty)
-      : [];
+    const credentials = await aoCredentials
+      .find({ client_id: { $in: client_ids } })
+      .lean();
 
-    return {
-      ...sendData,
-      data: filteredData,
-    };
+    const orderPromises = credentials.map(async (cred) => {
+      const sendData = await header(
+        "get",
+        "/secure/angelbroking/portfolio/v1/getAllHolding",
+        {},
+        cred.jwt
+      );
+      return sendData.data.holdings || [];
+    });
+
+    const results = await Promise.all(orderPromises);
+
+    res.status(200).json({
+      status: "SUCCESS",
+      results,
+    });
   } catch (error) {
-    return { message: "Error in getpostion", error };
+    res.status(500).json({ message: "Error in getpostion", error });
   }
 };
 

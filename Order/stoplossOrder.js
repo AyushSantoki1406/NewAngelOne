@@ -1,6 +1,7 @@
 const aoCredentials = require("../models/aoCredentials");
 const header = require("../Header/header");
 const { getTokens } = require("../config/tokenStore");
+const previousClose = require("../function/previousClose");
 
 const stoplossOrder = async (req, res) => {
   try {
@@ -28,36 +29,43 @@ const stoplossOrder = async (req, res) => {
       try {
         const jwtToken = process.env.JWT;
 
-        // ✅ Cancel all open orders if condition is met
-        if (
-          req.body.ordertype === "MARKET" &&
-          req.body.closeOpenPostion === true
-        ) {
+        if (closeOpenPostion === true) {
           const orderBookRes = await header(
             "get",
-            "/secure/angelbroking/order/v1/getOrderBook",
+            "/secure/angelbroking/portfolio/v1/getAllHolding",
             {},
-            jwtToken,
-            cred.apiKey
+            cred.jwt
           );
 
-          const orderData = orderBookRes?.data || [];
+          const orderData = orderBookRes?.data?.holdings || [];
 
-          const activeOrders = orderData.filter((order) =>
-            ["open"].includes(order.status.toLowerCase())
-          );
-
-          const cancelPromises = activeOrders.map((order) =>
-            header(
-              "post",
-              "/secure/angelbroking/order/v1/cancelOrder",
-              { variety: order.variety, orderid: order.orderid },
-              jwtToken,
-              cred.apiKey
+          // Collect promises for previousClose calls
+          const closePromises = orderData
+            .filter(
+              (item) =>
+                item.tradingsymbol === tradingsymbol &&
+                item.exchange === exchange &&
+                item.quantity === quantity
             )
-          );
+            .map((item) =>
+              previousClose(
+                "NORMAL",
+                item.tradingsymbol,
+                item.symboltoken,
+                item.quantity > 0 ? "SELL" : "BUY",
+                item.exchange,
+                "MARKET",
+                item.product,
+                "DAY",
+                item.quantity > 0 ? -item.quantity : Math.abs(item.quantity),
+                cred.client_id,
+                cred.jwt,
+                cred.apiKey
+              )
+            );
 
-          await Promise.all(cancelPromises);
+          // Await all previousClose operations
+          await Promise.all(closePromises);
         }
 
         // ✅ Build order data

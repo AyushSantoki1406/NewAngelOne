@@ -1,14 +1,16 @@
 const express = require("express");
 const router = express.Router();
-const { getPostion } = require("./getPosition.js");
+const { getPostion, getPostionF } = require("./getPosition.js");
 
 router.post("/place-order", require("./placeorder"));
 router.post("/exit-trade", require("./exitTrade.js"));
 router.get("/order-book", require("./orderBook.js"));
 router.get("/trade-book", require("./tradeBook.js"));
-router.get("/get-position", getPostion);
+router.get("/get-position", getPostionF);
 router.post("/cancel-orders", require("./cancelOrders.js"));
 router.post("/cancel-order", require("./cancelOrder.js"));
 router.post("/strategy", require("./strategy.js"));
+router.post("/profile", require("./getProfile.js"));
+router.post("/robo-order", require("./roboOrder.js"));
 
 module.exports = router;

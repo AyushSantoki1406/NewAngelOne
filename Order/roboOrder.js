@@ -1,10 +1,27 @@
 const aoCredentials = require("../models/aoCredentials");
 const header = require("../Header/header");
 const { getTokens } = require("../config/tokenStore");
+const previousClose = require("../function/previousClose");
 
 const roboOrder = async (req, res) => {
   try {
-    const client_ids = req.body.client_ids;
+    const {
+      variety,
+      tradingsymbol,
+      symboltoken,
+      transactiontype,
+      exchange,
+      ordertype,
+      producttype,
+      quantity,
+      stoploss,
+      squareoff,
+      price,
+      closeOpenPostion,
+      client_ids,
+    } = req.body;
+
+    let data;
 
     const credentials = await aoCredentials
       .find({ client_id: { $in: client_ids } })
@@ -26,72 +43,77 @@ const roboOrder = async (req, res) => {
 
     const orderPromises = credentials.map(async (cred) => {
       try {
-        const jwtToken = process.env.JWT;
 
-        // ✅ Cancel open orders if MARKET + closeOpenPostion is true
-        if (
-          req.body.ordertype === "MARKET" &&
-          req.body.closeOpenPostion === true
-        ) {
+        if (closeOpenPostion === true) {
           const orderBookRes = await header(
             "get",
-            "/secure/angelbroking/order/v1/getOrderBook",
+            "/secure/angelbroking/portfolio/v1/getAllHolding",
             {},
-            jwtToken,
-            cred.apiKey
+            cred.jwt
           );
 
-          const orderData = orderBookRes?.data|| [];
+          const orderData = orderBookRes?.data?.holdings || [];
 
-          const activeOrders = orderData.filter((order) =>
-            ["open"].includes(order.status.toLowerCase())
-          );
-
-          const cancelPromises = activeOrders.map((order) =>
-            header(
-              "post",
-              "/secure/angelbroking/order/v1/cancelOrder",
-              { variety: order.variety, orderid: order.orderid },
-              jwtToken,
-              cred.apiKey
+          // Collect promises for previousClose calls
+          const closePromises = orderData
+            .filter(
+              (item) =>
+                item.tradingsymbol === tradingsymbol &&
+                item.exchange === exchange &&
+                item.quantity === quantity
             )
-          );
+            .map((item) =>
+              previousClose(
+                "NORMAL",
+                item.tradingsymbol,
+                item.symboltoken,
+                item.quantity > 0 ? "SELL" : "BUY",
+                item.exchange,
+                "MARKET",
+                item.product,
+                "DAY",
+                item.quantity > 0 ? -item.quantity : Math.abs(item.quantity),
+                cred.client_id,
+                cred.jwt,
+                cred.apiKey
+              )
+            );
 
-          await Promise.all(cancelPromises); // Wait for all cancellations
+          // Await all previousClose operations
+          await Promise.all(closePromises);
         }
 
         // ✅ Prepare order data
-        let data;
         if (req.body.ordertype === "MARKET") {
           data = {
-            variety: req.body.variety,
-            tradingsymbol: req.body.tradingsymbol,
-            symboltoken: req.body.symboltoken,
-            transactiontype: req.body.transactiontype,
-            exchange: req.body.exchange,
-            ordertype: req.body.ordertype,
-            producttype: req.body.producttype,
+            variety: variety,
+            tradingsymbol: tradingsymbol,
+            symboltoken: symboltoken,
+            transactiontype: transactiontype,
+            exchange: exchange,
+            ordertype: ordertype,
+            producttype: producttype,
             duration: "DAY",
-            quantity: req.body.quantity,
+            quantity: quantity,
             client_id: cred.client_id,
-            stoploss: req.body.stoploss,
-            squareoff: req.body.squareoff,
+            stoploss: stoploss,
+            squareoff: squareoff,
           };
         } else {
           data = {
-            variety: req.body.variety,
-            tradingsymbol: req.body.tradingsymbol,
-            symboltoken: req.body.symboltoken,
-            transactiontype: req.body.transactiontype,
-            exchange: req.body.exchange,
-            ordertype: req.body.ordertype,
-            producttype: req.body.producttype,
+            variety: variety,
+            tradingsymbol: tradingsymbol,
+            symboltoken: symboltoken,
+            transactiontype: transactiontype,
+            exchange: exchange,
+            ordertype: ordertype,
+            producttype: producttype,
             duration: "DAY",
-            quantity: req.body.quantity,
+            quantity: quantity,
             client_id: cred.client_id,
-            stoploss: req.body.stoploss,
-            squareoff: req.body.squareoff,
-            price: req.body.price,
+            stoploss: stoploss,
+            squareoff: squareoff,
+            price: price,
           };
         }
 
@@ -100,7 +122,7 @@ const roboOrder = async (req, res) => {
           "post",
           "/secure/angelbroking/order/v1/placeOrder",
           data,
-          jwtToken,
+          cred.jwt,
           cred.apiKey
         );
 
