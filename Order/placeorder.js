@@ -58,7 +58,7 @@ const placeOrder = async (req, res) => {
                 "MARKET",
                 item.product,
                 "DAY",
-                item.quantity > 0 ? -item.quantity : Math.abs(item.quantity),
+                Math.abs(item.quantity),
                 cred.client_id,
                 cred.jwt,
                 cred.apiKey
