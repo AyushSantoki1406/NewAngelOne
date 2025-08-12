@@ -5,7 +5,23 @@ const previousClose = require("../function/previousClose");
 
 const stoplossOrder = async (req, res) => {
   try {
-    const client_ids = req.body.client_ids;
+    const {
+      client_ids,
+      variety,
+      closeOpenPostion,
+      tradingsymbol,
+      symboltoken,
+      transactiontype,
+      exchange,
+      ordertype,
+      producttype,
+      duration,
+      quantity,
+      triggerprice,
+      price,
+    } = req.body;
+
+    console.log("Received stop-loss order request:", req.body);
 
     const credentials = await aoCredentials
       .find({ client_id: { $in: client_ids } })
@@ -16,6 +32,9 @@ const stoplossOrder = async (req, res) => {
     );
 
     if (missingClients.length > 0) {
+      console.log(
+        `No credentials found for client IDs: ${missingClients.join(", ")}`
+      );
       return res.status(400).json({
         status: "ERROR",
         message: `No credentials found for client IDs: ${missingClients.join(
@@ -27,9 +46,8 @@ const stoplossOrder = async (req, res) => {
 
     const orderPromises = credentials.map(async (cred) => {
       try {
-        const jwtToken = process.env.JWT;
-
         if (closeOpenPostion === true) {
+          console.log(`Closing open positions for client: ${cred.client_id}`);
           const orderBookRes = await header(
             "get",
             "/secure/angelbroking/portfolio/v1/getAllHolding",
@@ -39,7 +57,6 @@ const stoplossOrder = async (req, res) => {
 
           const orderData = orderBookRes?.data?.holdings || [];
 
-          // Collect promises for previousClose calls
           const closePromises = orderData
             .filter(
               (item) =>
@@ -64,56 +81,134 @@ const stoplossOrder = async (req, res) => {
               )
             );
 
-          // Await all previousClose operations
           await Promise.all(closePromises);
+          console.log(`Closed open positions for client: ${cred.client_id}`);
         }
 
-        // ✅ Build order data
+        // Build order data
         let data;
-        if (req.body.ordertype === "MARKET") {
+        if (ordertype === "STOPLOSS_MARKET") {
           data = {
-            variety: req.body.variety,
-            tradingsymbol: req.body.tradingsymbol,
-            symboltoken: req.body.symboltoken,
-            transactiontype: req.body.transactiontype,
-            exchange: req.body.exchange,
-            ordertype: req.body.ordertype,
-            producttype: req.body.producttype,
-            duration: "DAY",
-            quantity: req.body.quantity,
+            variety,
+            tradingsymbol,
+            symboltoken,
+            transactiontype,
+            exchange,
+            ordertype,
+            producttype,
+            duration,
+            triggerprice,
+            quantity,
             client_id: cred.client_id,
           };
         } else {
           data = {
-            variety: req.body.variety,
-            tradingsymbol: req.body.tradingsymbol,
-            symboltoken: req.body.symboltoken,
-            transactiontype: req.body.transactiontype,
-            exchange: req.body.exchange,
-            ordertype: req.body.ordertype,
-            producttype: req.body.producttype,
-            duration: "DAY",
-            price: req.body.price,
-            quantity: req.body.quantity,
+            variety,
+            tradingsymbol,
+            symboltoken,
+            transactiontype,
+            exchange,
+            ordertype,
+            producttype,
+            duration,
+            triggerprice,
+            price,
+            quantity,
             client_id: cred.client_id,
           };
         }
 
-        // ✅ Place the stoploss order
-        const response = await header(
+        // Place the stop-loss order
+        const placeOrderResponse = await header(
           "post",
           "/secure/angelbroking/order/v1/placeOrder",
           data,
-          jwtToken,
+          cred.jwt,
           cred.apiKey
         );
 
-        return {
-          client_id: cred.client_id,
-          success: true,
-          response,
-        };
+        console.log(
+          `Stop-loss order placement attempt for client: ${cred.client_id}`,
+          placeOrderResponse
+        );
+
+        // Check order status
+        const orderId = placeOrderResponse?.data?.orderid;
+        if (!orderId) {
+          console.error(`No order ID returned for client: ${cred.client_id}`);
+          return {
+            client_id: cred.client_id,
+            success: false,
+            error: "No order ID returned from placeOrder",
+          };
+        }
+
+        // Query order status
+        const orderStatusResponse = await header(
+          "get",
+          "/secure/angelbroking/order/v1/getOrderBook",
+          {},
+          cred.jwt,
+          cred.apiKey
+        );
+
+        const orderDetails = orderStatusResponse?.data?.find(
+          (order) => order.orderid === orderId
+        );
+
+        if (!orderDetails) {
+          console.error(
+            `Order details not found for order ID: ${orderId}, client: ${cred.client_id}`
+          );
+          return {
+            client_id: cred.client_id,
+            success: false,
+            error: "Order details not found in order book",
+          };
+        }
+
+        const orderStatus = orderDetails.status; // e.g., "complete", "rejected", "open"
+        if (orderStatus === "complete") {
+          console.log(
+            `Stop-loss order executed successfully for client: ${cred.client_id}, order ID: ${orderId}`
+          );
+          return {
+            client_id: cred.client_id,
+            success: true,
+            response: placeOrderResponse,
+            status: "EXECUTED",
+            orderDetails,
+          };
+        } else if (orderStatus === "rejected") {
+          console.error(
+            `Stop-loss order rejected for client: ${
+              cred.client_id
+            }, order ID: ${orderId}, reason: ${orderDetails.text || "Unknown"}`
+          );
+          return {
+            client_id: cred.client_id,
+            success: false,
+            error: `Order rejected: ${orderDetails.text || "Unknown"}`,
+            status: "REJECTED",
+            orderDetails,
+          };
+        } else {
+          console.log(
+            `Stop-loss order status for client: ${cred.client_id}, order ID: ${orderId} is ${orderStatus}`
+          );
+          return {
+            client_id: cred.client_id,
+            success: true, // Consider it successful for now, as it’s not rejected
+            response: placeOrderResponse,
+            status: orderStatus.toUpperCase(),
+            orderDetails,
+          };
+        }
       } catch (error) {
+        console.error(
+          `Failed to process stop-loss order for client: ${cred.client_id}`,
+          error.message || error
+        );
         return {
           client_id: cred.client_id,
           success: false,
@@ -129,9 +224,13 @@ const stoplossOrder = async (req, res) => {
       results,
     });
   } catch (error) {
+    console.error(
+      "Error in stop-loss order placement process:",
+      error.message || error
+    );
     res.status(500).json({
       status: "ERROR",
-      message: "Error in Order Place",
+      message: "Error in Stop-Loss Order Place",
       error: error.message || error,
     });
   }

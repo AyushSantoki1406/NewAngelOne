@@ -21,7 +21,7 @@ const roboOrder = async (req, res) => {
       client_ids,
     } = req.body;
 
-    let data;
+    console.log("Received robo order request:", req.body);
 
     const credentials = await aoCredentials
       .find({ client_id: { $in: client_ids } })
@@ -32,6 +32,9 @@ const roboOrder = async (req, res) => {
     );
 
     if (missingClients.length > 0) {
+      console.log(
+        `No credentials found for client IDs: ${missingClients.join(", ")}`
+      );
       return res.status(400).json({
         status: "ERROR",
         message: `No credentials found for client IDs: ${missingClients.join(
@@ -43,8 +46,8 @@ const roboOrder = async (req, res) => {
 
     const orderPromises = credentials.map(async (cred) => {
       try {
-
         if (closeOpenPostion === true) {
+          console.log(`Closing open positions for client: ${cred.client_id}`);
           const orderBookRes = await header(
             "get",
             "/secure/angelbroking/portfolio/v1/getAllHolding",
@@ -54,7 +57,6 @@ const roboOrder = async (req, res) => {
 
           const orderData = orderBookRes?.data?.holdings || [];
 
-          // Collect promises for previousClose calls
           const closePromises = orderData
             .filter(
               (item) =>
@@ -79,46 +81,47 @@ const roboOrder = async (req, res) => {
               )
             );
 
-          // Await all previousClose operations
           await Promise.all(closePromises);
+          console.log(`Closed open positions for client: ${cred.client_id}`);
         }
 
-        // ✅ Prepare order data
-        if (req.body.ordertype === "MARKET") {
+        // Prepare order data
+        let data;
+        if (ordertype === "MARKET") {
           data = {
-            variety: variety,
-            tradingsymbol: tradingsymbol,
-            symboltoken: symboltoken,
-            transactiontype: transactiontype,
-            exchange: exchange,
-            ordertype: ordertype,
-            producttype: producttype,
+            variety,
+            tradingsymbol,
+            symboltoken,
+            transactiontype,
+            exchange,
+            ordertype,
+            producttype,
             duration: "DAY",
-            quantity: quantity,
+            quantity,
             client_id: cred.client_id,
-            stoploss: stoploss,
-            squareoff: squareoff,
+            stoploss,
+            squareoff,
           };
         } else {
           data = {
-            variety: variety,
-            tradingsymbol: tradingsymbol,
-            symboltoken: symboltoken,
-            transactiontype: transactiontype,
-            exchange: exchange,
-            ordertype: ordertype,
-            producttype: producttype,
+            variety,
+            tradingsymbol,
+            symboltoken,
+            transactiontype,
+            exchange,
+            ordertype,
+            producttype,
             duration: "DAY",
-            quantity: quantity,
+            quantity,
             client_id: cred.client_id,
-            stoploss: stoploss,
-            squareoff: squareoff,
-            price: price,
+            stoploss,
+            squareoff,
+            price,
           };
         }
 
-        // ✅ Place order
-        const response = await header(
+        // Place the robo order
+        const placeOrderResponse = await header(
           "post",
           "/secure/angelbroking/order/v1/placeOrder",
           data,
@@ -126,12 +129,88 @@ const roboOrder = async (req, res) => {
           cred.apiKey
         );
 
-        return {
-          client_id: cred.client_id,
-          success: true,
-          response,
-        };
+        console.log(
+          `Robo order placement attempt for client: ${cred.client_id}`,
+          placeOrderResponse
+        );
+
+        // Check order status
+        const orderId = placeOrderResponse?.data?.orderid;
+        if (!orderId) {
+          console.error(`No order ID returned for client: ${cred.client_id}`);
+          return {
+            client_id: cred.client_id,
+            success: false,
+            error: "No order ID returned from placeOrder",
+          };
+        }
+
+        // Query order status
+        const orderStatusResponse = await header(
+          "get",
+          "/secure/angelbroking/order/v1/getOrderBook",
+          {},
+          cred.jwt,
+          cred.apiKey
+        );
+
+        const orderDetails = orderStatusResponse?.data?.find(
+          (order) => order.orderid === orderId
+        );
+
+        if (!orderDetails) {
+          console.error(
+            `Order details not found for order ID: ${orderId}, client: ${cred.client_id}`
+          );
+          return {
+            client_id: cred.client_id,
+            success: false,
+            error: "Order details not found in order book",
+          };
+        }
+
+        const orderStatus = orderDetails.status; // e.g., "complete", "rejected", "open"
+        if (orderStatus === "complete") {
+          console.log(
+            `Robo order executed successfully for client: ${cred.client_id}, order ID: ${orderId}`
+          );
+          return {
+            client_id: cred.client_id,
+            success: true,
+            response: placeOrderResponse,
+            status: "EXECUTED",
+            orderDetails,
+          };
+        } else if (orderStatus === "rejected") {
+          console.error(
+            `Robo order rejected for client: ${
+              cred.client_id
+            }, order ID: ${orderId}, reason: ${orderDetails.text || "Unknown"}`
+          );
+          return {
+            client_id: cred.client_id,
+            success: false,
+            error: `Order rejected: ${orderDetails.text || "Unknown"}`,
+            status: "REJECTED",
+            orderDetails,
+          };
+        } else {
+          console.log(
+            `Robo order status for client: ${cred.client_id}, order ID: ${orderId} is ${orderStatus}`
+          );
+          return {
+            client_id: cred.client_id,
+            success: true, // Consider it successful for now, as it’s not rejected
+            response: placeOrderResponse,
+            status: orderStatus.toUpperCase(),
+            orderDetails,
+          };
+        }
       } catch (error) {
+        console.error(
+          `Failed to process robo order for client: ${cred.client_id}`,
+          error.message || error
+        );
         return {
           client_id: cred.client_id,
           success: false,
@@ -147,9 +226,13 @@ const roboOrder = async (req, res) => {
       results,
     });
   } catch (error) {
+    console.error(
+      "Error in robo order placement process:",
+      error.message || error
+    );
     res.status(500).json({
       status: "ERROR",
-      message: "Error in Order Place",
+      message: "Error in Robo Order Place",
       error: error.message || error,
     });
   }

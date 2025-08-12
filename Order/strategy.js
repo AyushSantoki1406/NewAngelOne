@@ -1,19 +1,18 @@
 const aoCredentials = require("../models/aoCredentials");
 const header = require("../Header/header");
 
-const jwtToken = process.env.JWT;
-
 const closeAndPlace = async (req, res) => {
   try {
     const {
       client_ids,
-      isClosePosition,
+      positionSize,
       tradingsymbol,
       symboltoken,
       transactiontype,
       exchange,
       producttype,
       quantity,
+      duration,
     } = req.body;
 
     if (!client_ids || !Array.isArray(client_ids) || client_ids.length === 0) {
@@ -48,27 +47,38 @@ const closeAndPlace = async (req, res) => {
       credentials.map(async (cred) => {
         const result = { client_id: cred.client_id, actions: [] };
 
-        // ✅ Step 1: Close existing position if isClosePosition !== 0
-        if (isClosePosition >= 1 || isClosePosition <= -1) {
+        // ✅ Step 1: Close existing position if positionSize !== 0
+        if (positionSize >= 1 || positionSize <= -1) {
           try {
             const orderBookRes = await header(
               "get",
-              "/secure/angelbroking/order/v1/getOrderBook",
+              "/secure/angelbroking/portfolio/v1/getAllHolding",
               {},
-              jwtToken,
+              cred.jwt,
               cred.apiKey
             );
 
-            const orderData = orderBookRes?.data || [];
+            const orderData = orderBookRes.data.holdings.flat() || [];
 
             const filteredOrders = orderData.filter((order) => {
+              console.log("orderDataertfghujiol", orderData);
+              console.log(
+                "order.tradingsymbol == tradingsymbol",
+                order.tradingsymbol == tradingsymbol
+              );
+              console.log(
+                "order.producttype == producttype",
+                order.producttype == producttype,
+                order.product,
+                producttype
+              );
               return (
-                (!tradingsymbol || order.tradingsymbol === tradingsymbol) &&
-                (!transactiontype ||
-                  order.transactiontype === transactiontype) &&
-                (!producttype || order.producttype === producttype)
+                (!tradingsymbol || order.tradingsymbol == tradingsymbol) &&
+                (!producttype || order.product == producttype)
               );
             });
+
+            console.log("filteredOrders", filteredOrders);
 
             const sortedOrders = filteredOrders.sort(
               (a, b) => new Date(a.updatetime) - new Date(b.updatetime)
@@ -76,8 +86,7 @@ const closeAndPlace = async (req, res) => {
 
             const reverseOrders = await Promise.all(
               sortedOrders.map(async (order) => {
-                const reverseType =
-                  order.transactiontype === "BUY" ? "SELL" : "BUY";
+                const reverseType = "SELL";
                 const reversePayload = {
                   variety: "NORMAL",
                   tradingsymbol: order.tradingsymbol,
@@ -91,29 +100,36 @@ const closeAndPlace = async (req, res) => {
                   client_id: cred.client_id,
                 };
 
-                return header(
-                  "post",
-                  "/secure/angelbroking/order/v1/placeOrder",
-                  reversePayload,
-                  jwtToken,
-                  cred.apiKey
-                )
-                  .then((response) => ({
+                try {
+                  const response = await header(
+                    "post",
+                    "/secure/angelbroking/order/v1/placeOrder",
+                    reversePayload,
+                    cred.jwt,
+                    cred.apiKey
+                  );
+                  console.log("response", response);
+
+                  return {
                     type: "exit",
                     orderid: order.orderid,
                     action: `${reverseType} placed`,
                     status: "SUCCESS",
                     response: response.data,
-                  }))
-                  .catch((error) => ({
+                  };
+                } catch (error) {
+                  return {
                     type: "exit",
                     orderid: order.orderid,
                     action: `${reverseType} failed`,
                     status: "FAILED",
                     error: error.message || error,
-                  }));
+                  };
+                }
               })
             );
+
+            console.log("reverseOrders", reverseOrders);
 
             result.actions.push(...reverseOrders);
           } catch (err) {
@@ -135,7 +151,7 @@ const closeAndPlace = async (req, res) => {
             exchange,
             ordertype: "MARKET",
             producttype,
-            duration: "DAY",
+            duration,
             quantity,
             client_id: cred.client_id,
           };
@@ -144,7 +160,7 @@ const closeAndPlace = async (req, res) => {
             "post",
             "/secure/angelbroking/order/v1/placeOrder",
             placePayload,
-            jwtToken,
+            cred.jwt,
             cred.apiKey
           );
 

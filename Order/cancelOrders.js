@@ -37,41 +37,40 @@ const cancelOrders = async (req, res) => {
           );
 
           const orderData = orderBookRes?.data || [];
-
           // Filter only orders that are NOT already cancelled or rejected
-          const activeOrders = orderData.filter(
-            (order) =>
-              ["open"].includes(order.status.toLowerCase())
+          const activeOrders = orderData.filter((order) =>
+            ["open"].includes(order.status.toLowerCase())
           );
+          console.log("activeOrders", activeOrders);
 
-          const cancelPromises = activeOrders.map((order) =>
-            header(
-              "post",
-              "/secure/angelbroking/order/v1/cancelOrder",
-              { variety: order.variety, orderid: order.orderid },
-              jwtToken,
-              cred.apiKey
-            )
-              .then((response) => ({
-                orderid: order.orderid,
-                tradingsymbol: order.tradingsymbol,
-                status: "Cancelled",
-                response: response.data,
-              }))
-              .catch((err) => ({
-                orderid: order.orderid,
-                tradingsymbol: order.tradingsymbol,
-                status: "Failed",
-                error: err.message || err,
-              }))
-          );
+          // const cancelPromises = activeOrders.map((order) =>
+          //   header(
+          //     "post",
+          //     "/secure/angelbroking/order/v1/cancelOrder",
+          //     { variety: order.variety, orderid: order.orderid },
+          //     jwtToken,
+          //     cred.apiKey
+          //   )
+          //     .then((response) => ({
+          //       orderid: order.orderid,
+          //       tradingsymbol: order.tradingsymbol,
+          //       status: "Cancelled",
+          //       response: response.data,
+          //     }))
+          //     .catch((err) => ({
+          //       orderid: order.orderid,
+          //       tradingsymbol: order.tradingsymbol,
+          //       status: "Failed",
+          //       error: err.message || err,
+          //     }))
+          // );
 
-          const cancelResults = await Promise.all(cancelPromises);
+          // const cancelResults = await Promise.all(cancelPromises);
 
-          return {
-            client_id: cred.client_id,
-            cancelled_orders: cancelResults,
-          };
+          // return {
+          //   client_id: cred.client_id,
+          //   cancelled_orders: cancelResults,
+          // };
         } catch (error) {
           return {
             client_id: cred.client_id,

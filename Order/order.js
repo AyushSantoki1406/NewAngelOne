@@ -13,5 +13,6 @@ router.post("/strategy", require("./strategy.js"));
 router.post("/profile", require("./getProfile.js"));
 router.post("/robo-order", require("./roboOrder.js"));
 router.post("/close-position", require("./closePostion.js"));
+router.post("/stoploss-order", require("./stoplossOrder.js"));
 
 module.exports = router;

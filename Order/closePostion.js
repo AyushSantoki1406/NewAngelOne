@@ -1,5 +1,4 @@
 const header = require("../Header/header");
-const { getTokens } = require("../config/tokenStore");
 require("dotenv").config();
 const aoCredentials = require("../models/aoCredentials");
 
@@ -13,7 +12,7 @@ const closePostion = async (req, res) => {
       producttype,
     } = req.body;
 
-    console.log(req.body);
+    console.log("for close postion : ", req.body);
     const credentials = await aoCredentials
       .find({ client_id: { $in: client_ids } })
       .lean();
@@ -53,7 +52,6 @@ const closePostion = async (req, res) => {
               client_id: cred.client_id,
             };
 
-            console.log("data", data);
             const response = await header(
               "post",
               "/secure/angelbroking/order/v1/placeOrder",

@@ -21,7 +21,7 @@ mongoose
     console.log("Error is " + e);
   });
 
-app.get("/", (req, res) => res.send("Hello World!"));
+app.get("/", (req, res) => console.log("Hello World!"));
 
 app.use(auth);
 app.use(order);
