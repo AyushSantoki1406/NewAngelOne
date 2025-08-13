@@ -14,7 +14,7 @@ const header = async (method, url, data, jwtToken, apikey) => {
         "X-ClientLocalIP": "192.168.157.1",
         "X-ClientPublicIP": "106.193.147.98",
         "X-MACAddress": "fe80::87f:98ff:fe5a:f5cb",
-        "X-PrivateKey": "pddUeuzZ",
+        "X-PrivateKey": `${apikey}`,
       },
       data: data,
     };

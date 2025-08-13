@@ -51,7 +51,8 @@ const placeOrder = async (req, res) => {
             "get",
             "/secure/angelbroking/portfolio/v1/getAllHolding",
             {},
-            cred.jwt
+            cred.jwt,
+            cred.apiKey
           );
 
           const orderData = orderBookRes?.data?.holdings || [];

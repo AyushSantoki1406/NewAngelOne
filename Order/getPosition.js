@@ -41,7 +41,8 @@ const getPostionF = async (req, res) => {
         "get",
         "/secure/angelbroking/portfolio/v1/getAllHolding",
         {},
-        cred.jwt
+        cred.jwt,
+        cred.apiKey
       );
       return sendData.data.holdings || [];
     });
