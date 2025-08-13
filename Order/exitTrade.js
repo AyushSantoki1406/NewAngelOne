@@ -2,8 +2,6 @@ const aoCredentials = require("../models/aoCredentials");
 const header = require("../Header/header");
 const { getTokens } = require("../config/tokenStore");
 
-const jwtToken = process.env.JWT;
-
 const closeOrder = async (req, res) => {
   try {
     const { client_ids, tradingsymbol, transactiontype, producttype } =
@@ -42,7 +40,7 @@ const closeOrder = async (req, res) => {
             "get",
             "/secure/angelbroking/order/v1/getOrderBook",
             {},
-            jwtToken,
+            cred.jwt,
             cred.apiKey
           );
 
@@ -83,7 +81,7 @@ const closeOrder = async (req, res) => {
                 "post",
                 "/secure/angelbroking/order/v1/placeOrder",
                 orderPayload,
-                jwtToken,
+                cred.jwt,
                 cred.apiKey
               )
                 .then((response) => ({
